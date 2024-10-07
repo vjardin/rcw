@@ -1,0 +1,60 @@
+/*
+ * Generic code for auto booting.
+ *
+ * For each boot source test rcw source, and set bootlocl/h accordingly.
+ *
+ * For single boot-source atf create_pbl adds block copy commands
+ * and sets boot location pointer.
+ * Automatic boot relies on rcw to include the blockcopy and bootlocptr
+ * commands, create_pbl then replaces their arguments.
+ *
+ * Copyright 2020 Rabeeh Khoury <rabeeh@solid-run.com>
+ * Copyright 2024 Josua Mayer <josua@solid-run.com>
+ * Copyright 2026 NXP
+ *
+ * Changelog:
+ * - 28/09/2024: changed formatting and comments
+ * - 07/10/2024: removed unnecessary commands to reduce size
+ * - 04/08/2026: replace jump offsets with labels
+ */
+.pbi
+/* Load condition PORSR1 and mask RCW_SRC */
+loadc 0x01e00000, (0xf << 23)
+
+/* If condition is SDHC1 then skip the following jump command */
+jumpc sdhc1_boot, (0x8 << 23)
+
+/* skip sdhc1 boot */
+jump sdhc1_done
+
+sdhc1_boot:
+/* copy blocks from sdhc1 (atf create_pbl will fixup arguments) */
+blockcopy 0x08, 0x0000a000, 0x1800d000, 0x00020000
+write 0x01e00400, 0x1800d000
+
+sdhc1_done:
+/* If condition is SDHC2 then skip the following jump command */
+jumpc sdhc2_boot, (0x9 << 23)
+
+/* skip sdhc2 boot */
+jump sdhc2_done
+
+sdhc2_boot:
+/* copy blocks from sdhc1 (atf create_pbl will fixup arguments) */
+blockcopy 0x09, 0x0000a000, 0x1800d000, 0x00020000
+write 0x01e00400, 0x1800d000
+
+sdhc2_done:
+/* If condition is XSPI then skip the following jump command */
+jumpc xspi_boot, (0xf << 23)
+
+/* skip xspi boot */
+jump xspi_done
+
+xspi_boot:
+/* copy blocks from xspi (atf create_pbl will fixup arguments) */
+blockcopy 0x0f, 0x20009000, 0x1800d000, 0x00020000
+write 0x01e00400, 0x1800d000
+
+xspi_done:
+.end
