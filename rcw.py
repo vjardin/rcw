@@ -271,6 +271,20 @@ def build_pbi_uboot(lines):
 
     return subsection
 
+def build_pbi_loadc(endianess, addr, mask):
+    return (struct.pack(endianess + 'L', 0x80140000) +
+            struct.pack(endianess + 'L', addr) +
+            struct.pack(endianess + 'L', mask))
+
+def build_pbi_jump(endianess, offset):
+    return (struct.pack(endianess + 'L', 0x80840000) +
+            struct.pack(endianess + 'L', offset))
+
+def build_pbi_jumpc(endianess, condition, offset):
+    return (struct.pack(endianess + 'L', 0x80850000) +
+            struct.pack(endianess + 'L', condition) +
+            struct.pack(endianess + 'L', offset))
+
 def build_pbi_poll(endianess, addr, mask, condition, long=False):
     # Poll Short (0x80) or Poll Long (0x81) - RM §8.3.11
     # Word 0: header=0x80 | cmd=0x80/0x81 | rsvd=0x0000
@@ -342,6 +356,27 @@ def build_pbi(lines):
             v2 = struct.pack(endianess + 'L', p2)
             subsection += v1
             subsection += v2
+        elif op == 'loadc':
+            if pbiformat != 2:
+                print('Error: "loadc" not supported for old PBI format')
+                return ''
+            if p1 == None or p2 == None:
+                print('Error: "loadc" instruction requires two parameters')
+                return ''
+            subsection += build_pbi_loadc(endianess, p1, p2)
+        elif op == 'jumpc':
+            if pbiformat != 2:
+                print('Error: "jumpc" not supported for old PBI format')
+                return ''
+            if p1 == None or p2 == None:
+                print('Error: "jumpc" instruction requires two parameters')
+                return ''
+            subsection += build_pbi_jumpc(endianess, p1, p2)
+        elif op == 'jump':
+            if p1 == None:
+                print('Error: "jump" instruction requires a parameter')
+                return ''
+            subsection += build_pbi_jump(endianess, p1)
         elif op == 'awrite':
             if opsize == '.b5':
                 # altconfig write with B=5 (16 bytes)
@@ -939,7 +974,7 @@ def create_source():
                         i += 4
                         arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
                         i += 4
-                        source += "loadcondition 0x%08x,0x%08x\n" % (arg1, arg2)
+                        source += "loadc 0x%08x,0x%08x\n" % (arg1, arg2)
                     elif cmd == 0x20:
                         source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
                     elif cmd == 0x22:
@@ -963,9 +998,15 @@ def create_source():
                     elif cmd == 0x82:
                         source += "wait 0x%08x\n" % (word & 0xffff)
                     elif cmd == 0x84:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
+                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
+                        i += 4
+                        source += "jump 0x%08x\n" % (arg1)
                     elif cmd == 0x85:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
+                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
+                        i += 4
+                        arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
+                        i += 4
+                        source += "jumpc 0x%08x,0x%08x\n" % (arg1, arg2)
                     elif cmd == 0x8f:
                         arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
                         i += 4
