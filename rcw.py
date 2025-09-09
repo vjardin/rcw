@@ -960,7 +960,7 @@ def create_source():
                         i += 4
                         arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
                         i += 4
-                        source += "loadcondition 0x%08x,0x%08x\n" % (arg1, arg2)
+                        source += "loadc 0x%08x,0x%08x\n" % (arg1, arg2)
                     elif cmd == 0x20:
                         source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
                     elif cmd == 0x22:
@@ -984,9 +984,9 @@ def create_source():
                     elif cmd == 0x82:
                         source += "wait 0x%08x\n" % (word & 0xffff)
                     elif cmd == 0x84:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
+                        source += "/* Disassemble not implemented for word 0x%08x (jump) */\n" % (word)
                     elif cmd == 0x85:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
+                        source += "/* Disassemble not implemented for word 0x%08x (jumpc) */\n" % (word)
                     elif cmd == 0x8f:
                         arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
                         i += 4
