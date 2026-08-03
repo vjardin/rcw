@@ -595,6 +595,10 @@ def check_vars():
             if not 'sysaddr' in vars:
                 print('Error: PBL format requires %sysaddr to be defined')
                 sys.exit(1)
+            if 'nocrc' in vars and int(vars['nocrc'], 0):
+                print('Error: %nocrc=1 is not supported for legacy PBI format; '
+                      'use %pbiformat=2')
+                sys.exit(1)
 
 # Create a .bin file
 def create_binary():
