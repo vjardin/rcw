@@ -801,295 +801,305 @@ def create_binary():
 
     return binary
 
+def _get_var_int(name, default=0):
+    """Return vars[name] as int, or default if absent."""
+    return int(vars[name], 0) if name in vars else default
+
+def _resolve_endianess():
+    """Return (endianess, endianessrev) struct format characters."""
+    if _get_var_int('littleendian'):
+        return '<', '>'
+    return '>', '<'
+
+def _unswap64b(binary, size_bytes, dont64bswapcrc):
+    """Re-sort 64-bit quads for littleendian64b images."""
+    binary = binary[:len(binary) & ~7]
+    l = len(binary)
+    if dont64bswapcrc and l > size_bytes:
+        l -= 8
+    result = b''
+    for i in range(0, l, 8):
+        x64 = struct.unpack('>Q', binary[i:i+8])[0]
+        result += struct.pack('<Q', x64)
+    if l < len(binary):
+        result += binary[l:l+8]
+    return result
+
+def _split_binary(binary, size, pbiformat, endianess):
+    """
+    Strip PBL preamble/checksum from binary.
+    Returns (bitbytes, pbi_bytes).
+    bitbytes: the raw RCW field bytes.
+    pbi_bytes: the raw PBI command stream (b'' if absent).
+    """
+    rcw_len = size // 8
+    if len(binary) <= rcw_len:
+        return binary, b''
+
+    preamble = struct.pack(endianess + 'L', 0xaa55aa55)
+    if binary[:4] != preamble:
+        print('Weird binary RCW format!')
+        return b'', b''
+
+    rcw_start = 8
+    rcw_end   = rcw_start + rcw_len
+    bitbytes  = binary[rcw_start:rcw_end]
+
+    # pbiformat==2 has an extra checksum word after the RCW
+    pbi_start = rcw_end + 4 if pbiformat == 2 else rcw_end
+    return bitbytes, binary[pbi_start:]
+
+def _bitbytes_to_int(bitbytes, classicbitnumbers):
+    """
+    Convert the raw RCW byte string to a single wide integer 'bits',
+    with LSB on the right, honouring classicbitnumbers bit-reversal.
+    """
+    if classicbitnumbers:
+        bitbytes = bytes(
+            int(bin(b)[2:].zfill(8)[::-1], 2) for b in bitbytes
+        )
+        bitstring = ''.join('{0:08b}'.format(b) for b in bitbytes)[::-1]
+    else:
+        bitstring = ''.join('{0:08b}'.format(b) for b in bitbytes)[::-1]
+    return int(bitstring, 2)
+
+def _decode_rcw_fields(bits):
+    """
+    Walk all known symbols, extract each field value from 'bits', and
+    return (source_lines, residual_bits) where residual_bits holds any
+    set bits not covered by a known symbol.
+    """
+    lines = ''
+    for n, [bb, ee] in symbols.ordered_items():
+        b, e = min(bb, ee), max(bb, ee)
+        s    = 1 + e - b
+        mask = (1 << s) - 1
+        v    = (bits >> b) & mask
+        # PPC-style bit numbering: reverse the extracted field value
+        if b == bb:
+            v = int(bin(v)[2:].zfill(s)[::-1], 2)
+        if v:
+            lines += ('%s=0x%x\n' if s > 8 else '%s=%u\n') % (n, v)
+            bits &= ~(mask << b)
+    return lines, bits
+
+def _warn_unknown_bits(bits):
+    """Print positions of any bits still set after field extraction."""
+    if not bits:
+        return
+    print('Unknown bits in positions:')
+    n, mask = 0, 1
+    while bits:
+        if bits & mask:
+            print(n)
+        n    += 1
+        bits &= ~mask
+        mask <<= 1
+
+def _read_words(pbi, i, count, endianess):
+    """Read 'count' consecutive 32-bit words from pbi[i:]; return (list, new_i)."""
+    words = []
+    for _ in range(count):
+        words.append(struct.unpack(endianess + 'L', pbi[i:i+4])[0])
+        i += 4
+    return words, i
+
+def _disasm_pbi_gen3_general(word, pbi, i, endianess):
+    """
+    Disassemble one pbiformat==2 general command (hdr == 0x80).
+    Returns (source_line, new_i).
+    """
+    cmd = (word >> 16) & 0xff
+
+    # Block Copy (RM §8.3.3)
+    if cmd == 0x00:
+        (a1, a2, a3), i = _read_words(pbi, i, 3, endianess)
+        return "blockcopy 0x%02x,0x%08x,0x%08x,0x%08x\n" % (word & 0xff, a1, a2, a3), i
+    # Load RCW / Load Sec Hdr / Load Boot1 CSF
+    if cmd in (0x10, 0x11, 0x20, 0x22):
+        return "/* Disassemble not implemented for word 0x%08x */\n" % word, i
+    # Load AltCfg Window (RM §8.3.6)
+    if cmd == 0x12:
+        return "loadacwindow 0x%08x\n" % (word & 0x3fff), i
+    # Load Condition (RM §8.3.7)
+    if cmd == 0x14:
+        (a1, a2), i = _read_words(pbi, i, 2, endianess)
+        return "loadc 0x%08x,0x%08x\n" % (a1, a2), i
+    # Poll Short / Poll Long (RM §8.3.11)
+    if cmd in (0x80, 0x81):
+        tag = 'short' if cmd == 0x80 else 'long'
+        (a1, a2, a3), i = _read_words(pbi, i, 3, endianess)
+        return "poll.%s 0x%08x,0x%08x,0x%08x\n" % (tag, a1, a2, a3), i
+    # Wait (RM §8.3.12)
+    if cmd == 0x82:
+        return "wait 0x%08x\n" % (word & 0xffff), i
+    # Jump (RM §8.3.13)
+    if cmd == 0x84:
+        (a1,), i = _read_words(pbi, i, 1, endianess)
+        return "jump 0x%08x\n" % a1, i
+    # Jump Conditional (RM §8.3.14)
+    if cmd == 0x85:
+        (a1, a2), i = _read_words(pbi, i, 2, endianess)
+        return "jumpc 0x%08x,0x%08x\n" % (a1, a2), i
+    # CRC and Stop (RM §8.3.15)
+    if cmd == 0x8f:
+        (a1,), i = _read_words(pbi, i, 1, endianess)
+        return "/* CRC and Stop command (CRC 0x%08x)*/\n" % a1, i
+    # Stop (RM §8.3.16)
+    if cmd == 0xff:
+        i += 4
+        return "/* Stop command */\n", i
+
+    return "/* Unknown word 0x%08x */\n" % word, i
+
+def _disasm_pbi_gen3_ccsr_write(word, pbi, i, endianess):
+    """
+    Disassemble one pbiformat==2 CCSR Write command (hdr & 0xc0 == 0x00).
+    B field (bits 29:28) selects byte count: B=1 -> write.b1, B=3 -> write.
+    B=2 is illegal per RM Table 33 and falls through to unknown-word comment.
+    Returns (source_line, new_i).
+    """
+    b_field = (word >> 28) & 0x3
+    (a1,), i = _read_words(pbi, i, 1, endianess)
+    if b_field == 0x1:
+        return "write.b1 0x%08x,0x%08x\n" % (word & 0x0fffffff, a1), i
+    if b_field == 0x3:
+        return "write 0x%08x,0x%08x\n"    % (word & 0x0fffffff, a1), i
+    return "/* Unknown word 0x%08x */\n" % word, i
+
+def _disasm_pbi_gen3_altcfg_write(word, pbi, i, endianess):
+    """
+    Disassemble one pbiformat==2 AltConfig Write command (hdr & 0xc0 == 0x80).
+    The B field (bits 29:26) encodes the byte count N = 2^(B-1).
+    Returns (source_line, new_i).
+    """
+    b_field = (word >> 26) & 0xf
+    if not b_field:
+        return "/* Unknown word 0x%08x */\n" % word, i
+    line = "awrite 0x%08x" % (word & 0x03ffffff)
+    for _ in range(0, 1 << (b_field - 1), 4):
+        (a1,), i = _read_words(pbi, i, 1, endianess)
+        line += ",0x%08x" % a1
+    return line + "\n", i
+
+def _disasm_pbi_gen3(pbi_bytes, endianess):
+    """
+    Disassemble a pbiformat==2 PBI command stream.
+    Returns the source text for the .pbi block body (without .pbi/.end markers).
+    """
+    # Pad to the next 4-byte boundary (0 bytes if already aligned).
+    pbi = pbi_bytes + bytearray(-len(pbi_bytes) % 4)
+    l = len(pbi)
+    lines = ''
+    i = 0
+
+    while i < l:
+        word = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
+        i += 4
+        hdr = (word >> 24) & 0xff
+        if hdr == 0x80:
+            line, i = _disasm_pbi_gen3_general(word, pbi, i, endianess)
+        elif (hdr & 0xc0) == 0x00:
+            line, i = _disasm_pbi_gen3_ccsr_write(word, pbi, i, endianess)
+        elif (hdr & 0xc0) == 0x80:
+            line, i = _disasm_pbi_gen3_altcfg_write(word, pbi, i, endianess)
+        else:
+            line = "/* Unknown word 0x%08x */\n" % word
+        lines += line
+    return lines
+
+def _disasm_pbi_legacy(pbi_bytes, endianess, endianessrev):
+    """
+    Disassemble a legacy (pbiformat != 2) PBI command stream.
+    Returns the source text for the .pbi block body (without .pbi/.end markers).
+    """
+    # Pad to the next 4-byte boundary (0 bytes if already aligned).
+    pbi = pbi_bytes + bytearray(-len(pbi_bytes) % 4)
+    l = len(pbi)
+    pbladdr = int(vars['pbladdr'], 16) & 0x00ffff00
+    crcstopcheck = 0x08000040 | pbladdr
+    le64b = _get_var_int('littleendian64b')
+    lines = ''
+    i = 0
+
+    while i < l:
+        word = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
+        i += 4
+        hdr = (word >> 24) & 0xff
+
+        # Magic hack to overcome broken binary PBI entries shipping in the SDK for LS1
+        if (le64b and i + 4 == l and
+                struct.unpack(endianessrev + 'L', pbi[i:i+4])[0] == crcstopcheck):
+            lines += "/* CRC and Stop command (CRC 0x%08x)*/\n" % word
+            i += 4
+            continue
+
+        if (hdr & 0x01) == 0x01:
+            addr = word & 0x00ffffff
+            cnt  = (hdr >> 1) & 0x3f or 64
+            if i + cnt >= l:
+                print('Error in write 0x%08x at offset %d within PBI\n' % (word, i))
+            if (addr & 0x00ffff00) == pbladdr:
+                (a1,), i = _read_words(pbi, i, 1, endianess)
+                lo = addr & 0xff
+                if   lo == 0x00: lines += "flush\n"
+                elif lo == 0x40: lines += "/* CRC command (CRC 0x%08x)*/\n" % a1
+                elif lo == 0x80: lines += "jump 0x%08x\n" % a1
+                elif lo == 0xc0: lines += "wait %u\n" % a1
+            else:
+                prefix = 'a' if (hdr & 0x80) else ''
+                line   = "%swrite 0x%08x" % (prefix, addr)
+                for _ in range(0, cnt, 4):
+                    (a1,), i = _read_words(pbi, i, 1, endianess)
+                    line += ",0x%08x" % a1
+                lines += line + "\n"
+        elif (hdr & 0x81) == 0x00:
+            (a1,), i = _read_words(pbi, i, 1, endianess)
+            lines += "/* CRC and Stop command (CRC 0x%08x)*/\n" % a1
+        else:
+            lines += "/* Unknown word 0x%08x */\n" % word
+    return lines
+
 # Create a source file from a binary and a .rcwi file
 def create_source():
     global symbols
     global vars
     global options
 
-    f = open(options.input, 'rb')
-    binary = f.read()
-    f.close()
+    # Read raw binary
+    with open(options.input, 'rb') as f:
+        binary = f.read()
 
+    # Resolve configuration
     size = int(vars['size'], 0)
-    if 'pbiformat' in vars:
-        pbiformat = int(vars['pbiformat'], 0)
-    else:
-        pbiformat = 0
-    if 'classicbitnumbers' in vars:
-        classicbitnumbers = int(vars['classicbitnumbers'], 0)
-    else:
-        classicbitnumbers = 0
-    endianess = ">"
-    endianessrev = "<"
-    if 'littleendian' in vars and int(vars['littleendian'], 0):
-        endianess = "<"
-        endianessrev = ">"
-        #binary = binary[0:len(binary) & ~3]
-        #newbinary = ''
-        #for i in range(0, len(binary), 4):
-        #        x32 = struct.unpack('>L', binary[i:i + 4])[0]
-        #        newbinary += struct.pack('<L', x32)
-        #binary = newbinary
+    pbiformat = _get_var_int('pbiformat')
+    classicbitnumbers = _get_var_int('classicbitnumbers')
+    endianess, endianessrev = _resolve_endianess()
+    dont64bswapcrc = _get_var_int('dont64bswapcrc')
 
-    dont64bswapcrc = 0
-    if 'dont64bswapcrc' in vars and int(vars['dont64bswapcrc'], 0):
-        dont64bswapcrc = 1
+    # Undo 64-bit quad byte-swap if required
+    if _get_var_int('littleendian64b'):
+        binary = _unswap64b(binary, size // 8, dont64bswapcrc)
 
-    # Re-sort words in 64b quads
-    if 'littleendian64b' in vars and int(vars['littleendian64b'], 0):
-        binary = binary[0:len(binary) & ~7]
-        l = len(binary)
-        if dont64bswapcrc and l > (size / 8):
-            l -= 8
-        newbinary = ''
-        for i in range(0, l, 8):
-                x64 = struct.unpack('>Q', binary[i:i + 8])[0]
-                newbinary += struct.pack('<Q', x64)
-        if l < len(binary):
-                newbinary += binary[i+8:i+16]
-        binary = newbinary
-
-    # Insert the #include statement for the RCWI file.  We assume that the
-    # file will be in the include path, so we use <> and strip any paths
-    # from the filename.
+    # Emit header include
     source = '#include <%s>\n\n' % os.path.basename(options.rcwi)
 
+    # Split preamble -> RCW bitbytes + PBI stream
+    bitbytes, pbi_bytes = _split_binary(binary, size, pbiformat, endianess)
 
-    # If the binary is larger than the RCW, then we assume that it has a
-    # preamble and an end-command, so remove them.  This is bit hackish,
-    # but it'll work for now.
-    if len(binary) > (size / 8):
-        preambletst = struct.pack(endianess + 'L', 0xaa55aa55)
+    # Decode RCW bitfields
+    bits = _bitbytes_to_int(bitbytes, classicbitnumbers)
+    field_lines, bits = _decode_rcw_fields(bits)
+    source += field_lines
+    _warn_unknown_bits(bits)
+
+    # Disassemble PBI command stream
+    if len(pbi_bytes) > 0:
         if pbiformat == 2:
-            if binary[0:4] == preambletst:
-                # Convert the binary into a large integer
-                rcw = binary[8:int(8 + (size / 8))]
-                bitbytes = rcw
-                # We skip the checksum field
-                pbi = binary[int(8 + (size / 8) + 4):]
-            else:
-                print('Weird binary RCW format!')
-                bitbytes = ''
+            body = _disasm_pbi_gen3(pbi_bytes, endianess)
         else:
-            if binary[0:4] == preambletst:
-                # Convert the binary into a large integer
-                rcw = binary[8:int(8 + (size / 8))]
-                bitbytes = rcw
-                pbi = binary[int(8 + (size / 8)):]
-            else:
-                print('Weird binary RCW format!')
-                bitbytes = ''
-    else:
-        bitbytes = binary
-        pbi = ''
-
-    if classicbitnumbers:
-        # We do the weird thing and rebitswap the bit string to ensure
-        # we have the right bit significance matched up with numbering
-        newbitbytes = ''
-        for c in bitbytes:
-            byte = c
-            newbitbytes += chr(int(bin(byte)[2:].zfill(8)[::-1], 2))
-        bitbytes = newbitbytes
-
-    # After this stage, all the RCW bits should be formatted with lsb on
-    # the right side and msb on the left side to permit conversion into
-    # a very long uint.
-    if classicbitnumbers:
-         bitstring = ''.join(['{0:08b}'.format(ord(x))  for x in bitbytes])[::-1]
-    else:
-         bitstring = ''.join(['{0:08b}'.format(x)  for x in bitbytes])[::-1]
-    bits = int(bitstring, 2)
-
-    # Loop over all the known symbols
-    for n, [bb, ee] in symbols.ordered_items():
-        b = min(bb, ee)
-        e = max(bb, ee)
-        s = 1 + e - b       # number of bits in field
-
-        shift = b  # number of bits to shift defined by lsb
-        mask = ((1 << s) - 1)
-        v = (bits >> shift) & mask
-        # If we treat the bitfield as "ppc" numbered, reverse
-        # the value before adding it!
-        if b == bb:
-            v = int(bin(v)[2:].zfill(s)[::-1], 2)
-
-        if v:
-            if s > 8:
-                source += "%s=0x%x\n" % (n, v)
-            else:
-                source += "%s=%u\n" % (n, v)
-
-            # Clear out the bits we just parsed, so that we can see if
-            # there are any left over.  If there are, then it means that
-            # there are bits set in the .bin that we don't recognize
-            bits &= ~(mask << shift)
-
-    if bits:
-        print('Unknown bits in positions:',)
-        mask = 1
-        n = 0
-        while bits:
-            if (bits & mask):
-                print(n,)
-            n += 1
-            bits &= ~mask
-            mask <<= 1
-        print()
-
-    if len(pbi) > 0:
-        l = len(pbi)
-        # Deal reasonably with broken PBIs with, e.g., an extra LF
-        # at the end
-        pbi += bytearray(3)
-        l += 3;
-        l &= ~3;
-        source += "\n.pbi\n"
-        i = 0
-        while i < l:
-            word = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-            i += 4
-            if pbiformat == 2:
-                hdr = (word & 0xff000000) >> 24
-                if hdr == 0x80:
-                    cmd = (word & 0x00ff0000) >> 16
-                    if cmd == 0x00:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg3 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "blockcopy 0x%02x,0x%08x,0x%08x,0x%08x\n" % ((word & 0xff), arg1, arg2, arg3)
-                    elif cmd == 0x10:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
-                    elif cmd == 0x11:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
-                    elif cmd == 0x12:
-                        source += "loadacwindow 0x%08x\n" % (word & 0x3fff)
-                    elif cmd == 0x14:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "loadc 0x%08x,0x%08x\n" % (arg1, arg2)
-                    elif cmd == 0x20:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
-                    elif cmd == 0x22:
-                        source += "/* Disassemble not implemented for word 0x%08x */\n" % (word)
-                    elif cmd == 0x80:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg3 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "poll.short 0x%08x,0x%08x,0x%08x\n" % (arg1, arg2, arg3)
-                    elif cmd == 0x81:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg3 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "poll.long 0x%08x,0x%08x,0x%08x\n" % (arg1, arg2, arg3)
-                    elif cmd == 0x82:
-                        source += "wait 0x%08x\n" % (word & 0xffff)
-                    elif cmd == 0x84:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "jump 0x%08x\n" % (arg1)
-                    elif cmd == 0x85:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        arg2 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "jumpc 0x%08x,0x%08x\n" % (arg1, arg2)
-                    elif cmd == 0x8f:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "/* CRC and Stop command (CRC 0x%08x)*/\n" % (arg1)
-                    elif cmd == 0xff:
-                        i += 4
-                        source += "/* Stop command */\n"
-                    else:
-                        source += "/* Unknown word 0x%08x */\n" % (word)
-                elif (hdr & 0xc0) == 0x00:
-                    cmd = (hdr & 0x30) >> 4
-                    if cmd == 0x1:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "write.b1 0x%08x,0x%08x\n" % (word & 0x0fffffff, arg1)
-                    elif cmd == 0x3:
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        source += "write 0x%08x,0x%08x\n" % (word & 0x0fffffff, arg1)
-                    else:
-                        source += "/* Unknown word 0x%08x */\n" % (word)
-                elif (hdr & 0xc0) == 0x80:
-                    cmd = (hdr & 0x3c) >> 2
-                    if cmd:
-                        source += "awrite 0x%08x" % (word & 0x03ffffff)
-                        for j in range(0, 1 << (cmd - 1), 4):
-                            arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                            i += 4
-                            source += ",0x%08x" % (arg1)
-                        source += "\n"
-                    else:
-                        source += "/* Unknown word 0x%08x */\n" % (word)
-                else:
-                    source += "/* Unknown word 0x%08x */\n" % (word)
-            else:
-                # Traditional pbi format
-
-                hdr = (word & 0xff000000) >> 24
-
-                # Magic hack to overcome broken binary PBI entries
-                # shipping in the SDK for LS1
-                pbladdr = (int(vars['pbladdr'], 16) & 0x00ffff00)
-                crcstopcheck = 0x08000040 | pbladdr
-                if ('littleendian64b' in vars and int(vars['littleendian64b'], 0) and
-                    i + 4 == l and struct.unpack(endianessrev + 'L', pbi[i:i+4])[0] == crcstopcheck):
-                    source += "/* CRC and Stop command (CRC 0x%08x)*/\n" % (word)
-                    i += 4
-                elif (hdr & 0x01) == 0x01:
-                    addr = word & 0x00ffffff
-                    cnt = (hdr >> 1) & 0x3f
-                    if cnt == 0:
-                        cnt = 64
-                    if i + cnt >= l:
-                        print('Error in write 0x%08x at offset %d within PBI\n' % (word, i))
-                    if (addr & 0x00ffff00 == pbladdr):
-                        arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                        i += 4
-                        if (addr & 0xff == 0x00):
-                            source += "flush"
-                        elif (addr & 0xff == 0x40):
-                            source += "/* CRC command (CRC 0x%08x)*/" % (arg1)
-                        elif (addr & 0xff == 0x80):
-                            source += "jump 0x%08x" %(arg1)
-                        elif (addr & 0xff == 0xc0):
-                            source += "wait %u" %(arg1)
-                    else:
-                        if (hdr & 0x80) == 0x80:
-                            source += "a"
-                        source += "write 0x%08x" % (addr)
-                        for j in range(0, cnt, 4):
-                            arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                            i += 4
-                            source += ",0x%08x" % (arg1)
-                    source += "\n"
-                elif (hdr & 0x81) == 0x00:
-                    arg1 = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
-                    i += 4
-                    source += "/* CRC and Stop command (CRC 0x%08x)*/\n" % (arg1)
-                else:
-                    source += "/* Unknown word 0x%08x */\n" % (word)
-                        
-        source += ".end\n"
-        
+            body = _disasm_pbi_legacy(pbi_bytes, endianess, endianessrev)
+        source += "\n.pbi\n" + body + ".end\n"
 
     return source
 
