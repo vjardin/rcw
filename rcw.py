@@ -271,6 +271,18 @@ def build_pbi_uboot(lines):
 
     return subsection
 
+def build_pbi_poll(endianess, addr, mask, condition, long=False):
+    # Poll Short (0x80) or Poll Long (0x81) - RM §8.3.11
+    # Word 0: header=0x80 | cmd=0x80/0x81 | rsvd=0x0000
+    # Word 1: addr
+    # Word 2: mask
+    # Word 3: condition
+    cmd = 0x81 if long else 0x80
+    return (struct.pack(endianess + 'L', 0x80000000 | (cmd << 16)) +
+            struct.pack(endianess + 'L', addr) +
+            struct.pack(endianess + 'L', mask) +
+            struct.pack(endianess + 'L', condition))
+
 # Build a PBI section
 def build_pbi(lines):
     subsection = b''
@@ -389,16 +401,7 @@ def build_pbi(lines):
             if p1 == None or p2 == None or p3 == None:
                 print('Error: "poll" instruction requires three parameters')
                 return ''
-            if opsize == '.long':
-                cmd = 0x81
-            else:
-                cmd = 0x80
-            v1 = struct.pack(endianess + 'L', 0x80000000 + (cmd << 24) + p1)
-            v2 = struct.pack(endianess + 'L', p2)
-            v3 = struct.pack(endianess + 'L', p3)
-            subsection += v1
-            subsection += v2
-            subsection += v3
+            subsection += build_pbi_poll(endianess, p1, p2, p3, long=(opsize == '.long'))
         elif op == 'loadacwindow':
             if pbiformat != 2:
                 print('Error: "loadacwindow" not supported for old PBI format')
