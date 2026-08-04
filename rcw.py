@@ -301,8 +301,81 @@ def build_pbi_poll(endianess, addr, mask, condition, long=False):
             struct.pack(endianess + 'L', mask) +
             struct.pack(endianess + 'L', condition))
 
+# Instruction table for pbiformat==2 (gen3) fixed-size general commands.
+# Each entry maps a source mnemonic (op + opsize suffix where applicable) to:
+#   cmd  -- the command byte embedded in the header word (bits 23:16)
+#   size -- total instruction size in bytes including the header word
+#
+# Variable-size instructions (write, awrite, flush) and the legacy-only 'wait'
+# variant are absent; their sizes depend on operands or pbiformat at runtime.
+#
+# _PBI_GEN3_BY_CMD is the reverse index used by the disassembler, keyed on the
+# command byte.  It is built automatically from _PBI_GEN3_INSNS.
+_PBI_GEN3_INSNS = {
+    'blockcopy':    {'cmd': 0x00, 'size': 16},
+    'loadacwindow': {'cmd': 0x12, 'size':  4},
+    'loadc':        {'cmd': 0x14, 'size': 12},
+    'wait':         {'cmd': 0x82, 'size':  4},
+    'jump':         {'cmd': 0x84, 'size':  8},
+    'jumpc':        {'cmd': 0x85, 'size': 12},
+    'poll':         {'cmd': 0x80, 'size': 16},
+    'poll.long':    {'cmd': 0x81, 'size': 16},
+    'stop':         {'cmd': 0xff, 'size':  8},
+    'crcstop':      {'cmd': 0x8f, 'size':  8},
+}
+_PBI_GEN3_BY_CMD = {v['cmd']: (k, v) for k, v in _PBI_GEN3_INSNS.items()}
+
+def _pbi_insn_size(op, opsize, pbiformat):
+    """Return the byte size of a PBI instruction given its op and opsize modifier.
+
+    This is used by the label-resolution pass 1 to compute the byte offset of
+    each instruction without actually emitting any bytes.  The sizes are
+    determined solely from the opcode and the optional size suffix; no operand
+    values are needed.
+
+    Returns None for unknown opcodes so the caller can report an error.
+    """
+    # Variable-size instructions: size depends on the B field in the header.
+    if op in ('write', 'awrite'):
+        if opsize == '.b5':
+            return 20   # hdr(4) + 4 data words
+        if opsize == '.b4':
+            return 12   # hdr(4) + 2 data words
+        return 8        # hdr(4) + 1 data word (default / .b1 / .b2)
+    if op == 'flush':
+        return 8
+    # Legacy pbiformat!=2 wait is 8 bytes (write-style encoding).
+    if op == 'wait' and pbiformat != 2:
+        return 8
+    entry = _PBI_GEN3_INSNS.get(op + opsize) or _PBI_GEN3_INSNS.get(op)
+    return entry['size'] if entry else None
+
+def _parse_pbi_line(l):
+    """Parse a raw PBI source line into (op, opsize, raw_params[]).
+
+    Returns None if the line does not match the expected instruction pattern.
+    raw_params is a list of up to 5 stripped strings (may be empty strings for
+    absent parameters).
+    """
+    m = re.match(
+        r'\s*([a-z]+)(|\.b1|\.b2|\.b4|\.b5|\.short|\.long)'
+        r'\s*(?<=\s)([^,]*),?([^,]*),?([^,]*),?([^,]*),?([^,]*)',
+        l + ' ')
+    if not m:
+        return None
+    op     = m.group(1)
+    opsize = m.group(2)
+    params = [m.group(i).strip() for i in range(3, 8)]
+    return op, opsize, params
+
+# Label pattern: an identifier followed by a colon, optionally with leading
+# whitespace, on a line by itself (after stripping comments).
+_LABEL_RE = re.compile(r'^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*$')
+
 # Build a PBI section
 def build_pbi(lines):
+    """Assemble a list of PBI source lines into a binary byte string.
+    """
     subsection = b''
     global vars
 
@@ -311,10 +384,43 @@ def build_pbi(lines):
     if _get_var_int('littleendian'):
         endianess = "<"
 
+    # Pass 1: collect byte offsets of each label within this PBI section.
+    labels = {}      # name -> byte offset from start of this PBI section
+    byte_offset = 0
     for l in lines:
+        text = l.decode("ascii")
+        # Label definition?
+        lm = _LABEL_RE.match(text)
+        if lm:
+            name = lm.group(1)
+            if name in labels:
+                print('Error: duplicate label "%s" in .pbi block' % name)
+                return ''
+            labels[name] = byte_offset
+            continue
+        # Regular instruction - determine its size.
+        parsed = _parse_pbi_line(text)
+        if not parsed:
+            print('Unknown PBI subsection command "%s"' % l)
+            return ''
+        op, opsize, _ = parsed
+        size = _pbi_insn_size(op, opsize, pbiformat)
+        if size is None:
+            print('Unknown PBI subsection command "%s"' % l)
+            return ''
+        byte_offset += size
+
+    # Pass 2: emit bytes, resolving label references in jump/jumpc.
+    byte_offset = 0
+    for l in lines:
+        text = l.decode("ascii")
+        # Skip label definitions - they emit no bytes.
+        if _LABEL_RE.match(text):
+            continue
+
         # Check for an instruction without 0-3 parameters
         # The + ' ' is a hack to make the regex work for just 'flush'
-        m = re.match(r'\s*([a-z]+)(|\.b1|\.b2|\.b4|\.b5|\.short|\.long)\s*(?<=\s)([^,]*),?([^,]*),?([^,]*),?([^,]*),?([^,]*)', l.decode("ascii") + ' ')
+        m = re.match(r'\s*([a-z]+)(|\.b1|\.b2|\.b4|\.b5|\.short|\.long)\s*(?<=\s)([^,]*),?([^,]*),?([^,]*),?([^,]*),?([^,]*)', text + ' ')
         if not m:
             print('Unknown PBI subsection command "%s"' % l)
             return ''
@@ -324,16 +430,25 @@ def build_pbi(lines):
         if opsize == '.b1':
             opsizebytes = 1
 
-        p1 = m.group(3).strip()
-        p2 = m.group(4).strip()
-        p3 = m.group(5).strip()
-        p4 = m.group(6).strip()
-        p5 = m.group(7).strip()
-        p1 = eval(p1, {"__builtins__":None}, {}) if len(p1) else None
-        p2 = eval(p2, {"__builtins__":None}, {}) if len(p2) else None
-        p3 = eval(p3, {"__builtins__":None}, {}) if len(p3) else None
-        p4 = eval(p4, {"__builtins__":None}, {}) if len(p4) else None
-        p5 = eval(p5, {"__builtins__":None}, {}) if len(p5) else None
+        def resolve(raw, insn_offset, is_jump_offset=False):
+            """Evaluate a parameter string, resolving label names for jump offsets."""
+            s = raw.strip()
+            if not s:
+                return None
+            if is_jump_offset and s in labels:
+                return labels[s] - insn_offset
+            return eval(s, {"__builtins__": None}, {})
+
+        # For jump, p1 is the offset; for jumpc, p1 is the offset and p2 is
+        # the condition value (source syntax: jumpc <offset>,<condition>).
+        p1 = resolve(m.group(3), byte_offset, is_jump_offset=(op in ('jump', 'jumpc')))
+        p2 = resolve(m.group(4), byte_offset)
+        p3 = resolve(m.group(5), byte_offset)
+        p4 = resolve(m.group(6), byte_offset)
+        p5 = resolve(m.group(7), byte_offset)
+
+        insn_size = _pbi_insn_size(op, opsize, pbiformat)
+
         if op == 'wait':
             if p1 == None:
                 print('Error: "wait" instruction requires one parameter')
@@ -467,6 +582,8 @@ def build_pbi(lines):
         else:
             print('Unknown PBI subsection command "%s"' % l)
             return ''
+
+        byte_offset += insn_size
 
     return subsection
 
@@ -889,10 +1006,14 @@ def _read_words(pbi, i, count, endianess):
         i += 4
     return words, i
 
-def _disasm_pbi_gen3_general(word, pbi, i, endianess):
+def _disasm_pbi_gen3_general(word, pbi, i, endianess, insn_start, label_map):
     """
     Disassemble one pbiformat==2 general command (hdr == 0x80).
     Returns (source_line, new_i).
+
+    insn_start is the byte offset of this instruction within the PBI stream.
+    label_map maps target byte offsets to label name strings; jump/jumpc use
+    it to emit a label name instead of a raw byte offset.
     """
     cmd = (word >> 16) & 0xff
 
@@ -920,12 +1041,14 @@ def _disasm_pbi_gen3_general(word, pbi, i, endianess):
         return "wait 0x%08x\n" % (word & 0xffff), i
     # Jump (RM §8.3.13)
     if cmd == 0x84:
-        (a1,), i = _read_words(pbi, i, 1, endianess)
-        return "jump 0x%08x\n" % a1, i
+        (offset,), i = _read_words(pbi, i, 1, endianess)
+        dest = label_map.get(insn_start + offset, '0x%08x' % offset)
+        return "jump %s\n" % dest, i
     # Jump Conditional (RM §8.3.14)
     if cmd == 0x85:
-        (a1, a2), i = _read_words(pbi, i, 2, endianess)
-        return "jumpc 0x%08x,0x%08x\n" % (a1, a2), i
+        (offset, condition), i = _read_words(pbi, i, 2, endianess)
+        dest = label_map.get(insn_start + offset, '0x%08x' % offset)
+        return "jumpc %s,0x%08x\n" % (dest, condition), i
     # CRC and Stop (RM §8.3.15)
     if cmd == 0x8f:
         (a1,), i = _read_words(pbi, i, 1, endianess)
@@ -967,6 +1090,58 @@ def _disasm_pbi_gen3_altcfg_write(word, pbi, i, endianess):
         line += ",0x%08x" % a1
     return line + "\n", i
 
+def _disasm_pbi_gen3_collect_targets(pbi, endianess):
+    """
+    Pass 1: walk the pbiformat==2 PBI byte stream and collect the set of byte
+    offsets that are jump targets.  Only jump and jumpc are considered; all
+    other instructions are stepped over using the size from _PBI_GEN3_BY_CMD.
+    Returns a set of integer byte offsets (relative to the start of pbi).
+    """
+    targets = set()
+    i = 0
+    l = len(pbi)
+    while i < l:
+        insn_start = i
+        word = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
+        i += 4
+        hdr = (word >> 24) & 0xff
+        if hdr != 0x80:
+            # CCSR write (8 bytes total) or AltCfg write (variable).
+            if (hdr & 0xc0) == 0x00:
+                i += 4
+            elif (hdr & 0xc0) == 0x80:
+                b_field = (word >> 26) & 0xf
+                if b_field:
+                    i += 1 << (b_field - 1)
+            else:
+                # Unknown header class: cannot determine size, abort.
+                return set()
+            continue
+        cmd = (word >> 16) & 0xff
+        entry = _PBI_GEN3_BY_CMD.get(cmd)
+        if entry is None:
+            # Unknown command: cannot determine instruction size, so the rest
+            # of the stream would be parsed at wrong offsets.  Abort and return
+            # an empty set so the caller falls back to raw hex offsets for all
+            # jumps rather than producing silently wrong labels.
+            return set()
+        mnemonic, info = entry
+        if mnemonic == 'jump':
+            (offset,), i = _read_words(pbi, i, 1, endianess)
+            target = insn_start + offset
+            if target < l:
+                targets.add(target)
+        elif mnemonic == 'jumpc':
+            (offset,), i = _read_words(pbi, i, 1, endianess)
+            target = insn_start + offset
+            if target < l:
+                targets.add(target)
+            i += 4   # skip condition word
+        else:
+            # Step over the remaining words of this instruction.
+            i += info['size'] - 4   # header word already consumed
+    return targets
+
 def _disasm_pbi_gen3(pbi_bytes, endianess):
     """
     Disassemble a pbiformat==2 PBI command stream.
@@ -975,15 +1150,28 @@ def _disasm_pbi_gen3(pbi_bytes, endianess):
     # Pad to the next 4-byte boundary (0 bytes if already aligned).
     pbi = pbi_bytes + bytearray(-len(pbi_bytes) % 4)
     l = len(pbi)
+
+    # Pass 1: collect byte offsets of jump targets and assign label names.
+    targets = _disasm_pbi_gen3_collect_targets(pbi, endianess)
+    # Sort so that label indices are assigned in stream order.
+    label_map = {off: 'L%d' % idx for idx, off in enumerate(sorted(targets))}
+
+    # Pass 2: emit source lines.
     lines = ''
     i = 0
 
     while i < l:
+        insn_start = i
+        # Emit a label definition if this offset is a jump target.
+        if insn_start in label_map:
+            lines += '%s:\n' % label_map[insn_start]
+
         word = struct.unpack(endianess + 'L', pbi[i:i+4])[0]
         i += 4
         hdr = (word >> 24) & 0xff
         if hdr == 0x80:
-            line, i = _disasm_pbi_gen3_general(word, pbi, i, endianess)
+            line, i = _disasm_pbi_gen3_general(word, pbi, i, endianess,
+                                               insn_start, label_map)
         elif (hdr & 0xc0) == 0x00:
             line, i = _disasm_pbi_gen3_ccsr_write(word, pbi, i, endianess)
         elif (hdr & 0xc0) == 0x80:
