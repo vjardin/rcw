@@ -206,6 +206,10 @@ def check_for_overlap(name, begin, end):
         if (b <= begin <= e) or (b <= end <= e):
             print('Error: Bitfield', name, 'overlaps with', n)
 
+def _get_var_int(name, default=0):
+    """Return vars[name] as int, or default if absent."""
+    return int(vars[name], 0) if name in vars else default
+
 #
 # Build a u-boot PBI section for SPI/SD/NAND boot
 #         refer: Chapter 10, u-boot of QorIQ_SDK_Infocenter.pdf
@@ -302,12 +306,9 @@ def build_pbi(lines):
     subsection = b''
     global vars
 
-    if 'pbiformat' in vars:
-        pbiformat = int(vars['pbiformat'], 0)
-    else:
-        pbiformat = 0
+    pbiformat = _get_var_int('pbiformat')
     endianess = ">"
-    if 'littleendian' in vars and int(vars['littleendian'], 0):
+    if _get_var_int('littleendian'):
         endianess = "<"
 
     for l in lines:
@@ -618,7 +619,7 @@ def check_vars():
         sys.exit(1)
 
     if options.pbl:
-        if 'pbiformat' in vars and int(vars['pbiformat'], 0) == 2:
+        if _get_var_int('pbiformat') == 2:
             if 'sysaddr' in vars:
                 print('Error: PBL format does not use %sysaddr')
                 sys.exit(1)
@@ -630,7 +631,7 @@ def check_vars():
             if not 'sysaddr' in vars:
                 print('Error: PBL format requires %sysaddr to be defined')
                 sys.exit(1)
-            if 'nocrc' in vars and int(vars['nocrc'], 0):
+            if _get_var_int('nocrc'):
                 print('Error: %nocrc=1 is not supported for legacy PBI format; '
                       'use %pbiformat=2')
                 sys.exit(1)
@@ -644,35 +645,19 @@ def create_binary():
     global pbi
 
     # Create the RCW data.  We encode it into 'bits' as a giant (2^size)-bit number
-    if 'nocrc' in vars:
-        nocrc = int(vars['nocrc'], 0)
-    else:
-        nocrc = 0
+    nocrc = _get_var_int('nocrc')
 
     # check for load without checksum
-    if 'loadwochecksum' in vars:
-        loadwochecksum = int(vars['loadwochecksum'], 0)
-    else:
-        loadwochecksum = 0
+    loadwochecksum = _get_var_int('loadwochecksum')
 
     size = int(vars['size'], 0)
-    if 'pbiformat' in vars:
-        pbiformat = int(vars['pbiformat'], 0)
-    else:
-        pbiformat = 0
-    if 'classicbitnumbers' in vars:
-        classicbitnumbers = int(vars['classicbitnumbers'], 0)
-    else:
-        classicbitnumbers = 0
+    pbiformat = _get_var_int('pbiformat')
+    classicbitnumbers = _get_var_int('classicbitnumbers')
     endianess = ">"
-    if 'littleendian' in vars and int(vars['littleendian'], 0):
+    if _get_var_int('littleendian'):
         endianess = "<"
-    endianess64b = 0
-    if 'littleendian64b' in vars and int(vars['littleendian64b'], 0):
-        endianess64b = 1
-    dont64bswapcrc = 0
-    if 'dont64bswapcrc' in vars and int(vars['dont64bswapcrc'], 0):
-        dont64bswapcrc = 1
+    endianess64b = _get_var_int('littleendian64b')
+    dont64bswapcrc = _get_var_int('dont64bswapcrc')
     bits = 0
 
     # Magic hack. If a pbi is specified and we didn't set the size,
