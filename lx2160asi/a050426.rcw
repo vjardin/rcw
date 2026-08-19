@@ -10,6 +10,8 @@
  * and when the SoC comes out of POR reset.
  */
 
+#include <../lx2160asi/serdes_prtcl.rcw>
+
 .pbi
 
 #define SRDS_BASE 0x1ea0000 /* SerDes 1 */
@@ -47,33 +49,60 @@ loadacwindow 0x1C0
 awrite 0x117E60,0x80000001
 .end
 
-/* PEX */
+/*
+ * PEX
+ *
+ * 6 scrub groups, one per PCI Express controller, 1 MiB apart in the
+ * DCSR window opened by loadacwindow 0x1C2:
+ * 0x25, 0x26, 0x27, 0x28, 0x2A, 0x2B, with 0x29 unpopulated.
+ * Assigning PCIe1..PCIe6 to them in ascending address order is the only
+ * assignment consistent with the* one anchor available:
+ *  - 0x27 and 0x2A carry twice as many scrub sites as the other four,
+ *  - and PCIe3 and PCIe5 are the only SR-IOV instances (RM 22.4.1 / 22.4.2),
+ * so those two must be the double-sized ones.
+ *
+ * WARNING TBC: that is a deduction from the site counts, not a statement in
+ * the RM, which does not name these DCSR sub-blocks. It only matters to
+ * a board that declares its SerDes protocols, leaving them undeclared
+ * scrubs all six as before.
+ */
+#if PEX1_ACTIVE || PEX2_ACTIVE || PEX3_ACTIVE || PEX4_ACTIVE || \
+    PEX5_ACTIVE || PEX6_ACTIVE
 .pbi
 loadacwindow 0x1C2
+#if PEX1_ACTIVE                 /* 0x25 */
 awrite.b4 0x2508000,0x64a8150e,0xcfc4885c
 awrite 0x2508008,0x40ee75fe
 awrite.b5 0x2518000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2518010,0x4416e4be
 awrite.b5 0x2520000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2520010,0x4416e4be
+#endif
+#if PEX2_ACTIVE                 /* 0x26 */
 awrite.b4 0x2608000,0x64a8150e,0xcfc4885c
 awrite 0x2608008,0x40ee75fe
 awrite.b5 0x2618000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2618010,0x4416e4be
 awrite.b5 0x2620000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2620010,0x4416e4be
+#endif
+#if PEX4_ACTIVE                 /* 0x28 */
 awrite.b4 0x2808000,0x64a8150e,0xcfc4885c
 awrite 0x2808008,0x40ee75fe
 awrite.b5 0x2818000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2818010,0x4416e4be
 awrite.b5 0x2820000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2820010,0x4416e4be
+#endif
+#if PEX6_ACTIVE                 /* 0x2B */
 awrite.b4 0x2B08000,0x64a8150e,0xcfc4885c
 awrite 0x2B08008,0x40ee75fe
 awrite.b5 0x2B18000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2B18010,0x4416e4be
 awrite.b5 0x2B20000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2B20010,0x4416e4be
+#endif
+#if PEX3_ACTIVE                 /* 0x27 */
 awrite.b5 0x2708000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2708010,0x4416e4be
 awrite.b5 0x2728000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
@@ -86,6 +115,8 @@ awrite.b5 0x2748000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2748010,0x4416e4be
 awrite.b5 0x2758000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2758010,0x4416e4be
+#endif
+#if PEX5_ACTIVE                 /* 0x2A */
 awrite.b5 0x2A08000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2A08010,0x4416e4be
 awrite.b5 0x2A28000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
@@ -98,9 +129,17 @@ awrite.b5 0x2A48000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2A48010,0x4416e4be
 awrite.b5 0x2A58000,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x2A58010,0x4416e4be
+#endif
 .end
+#endif /* any PEX */
 
-/* lnx1_e100g */
+/*
+ * lnx1_e100g
+ *
+ * Lynx 1 100G-class RAM: needed only when the SerDes 1 protocol
+ * assigns lanes to CAUI / 50G / 40G / 25G (RM Table 289).
+ */
+#if SD1_E100G
 .pbi
 loadacwindow 0x1C3
 awrite.b4 0xA000,0x64a8150e,0xcfc4885c
@@ -208,8 +247,15 @@ awrite 0x16008,0x40ee75fe
 awrite.b4 0x17000,0x64a8150e,0xcfc4885c
 awrite 0x17008,0x40ee75fe
 .end
+#endif /* SD1_E100G */
 
-/* lnx1_xfi */
+/*
+ * lnx1_xfi
+ *
+ * Lynx 1 USXGMII/XFI RAM: needed only when the SerDes 1 protocol
+ * assigns lanes to USXFI (RM Table 289).
+ */
+#if SD1_USXFI
 .pbi
 awrite.b4 0x108000,0x64a8150e,0xcfc4885c
 awrite 0x108008,0x40ee75fe
@@ -308,8 +354,15 @@ awrite 0x136010,0x4416e4be
 awrite.b5 0x136400,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x136410,0x4416e4be
 .end
+#endif /* SD1_USXFI */
 
-/* lnx2_xfi */
+/*
+ * lnx2_xfi
+ *
+ * Lynx 2 USXGMII/XFI RAM: needed only when the SerDes 2 protocol
+ * assigns lanes to USXFI (RM Table 290).
+ */
+#if SD2_USXFI
 .pbi
 awrite.b4 0x308000,0x64a8150e,0xcfc4885c
 awrite 0x308008,0x40ee75fe
@@ -336,6 +389,7 @@ awrite 0x312010,0x4416e4be
 awrite.b5 0x312400,0x64a8150e,0xcfc4885c,0x40ee75fe,0x4b19116f
 awrite 0x312410,0x4416e4be
 .end
+#endif /* SD2_USXFI */
 
 .pbi
 loadacwindow 0x1C0
