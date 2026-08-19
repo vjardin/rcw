@@ -1,44 +1,111 @@
 /*
  * The default configuration of the elastic buffer thresholds in the PCI
  * Express controller is not optimal and can cause various link errors.
+ *
+ * Only the sub-controllers the SerDes protocol actually enables need the
+ * fix. A board that declares its protocols (see serdes_prtcl.rcw) drops
+ * the rest; a board that declares nothing keeps all three SerDes and all
+ * four sub-controllers, as before.
+ *
+ * Note that across RM Tables 289/290/291 no protocol on any SerDes ever
+ * assigns lanes to sub-controller b or d, so on a board that declares
+ * its protocols indices 1 and 3 always fall away.
  */
 
+#include <../lx2160asi/serdes_prtcl.rcw>
+
+#if SD1_PEX_ANY || SD2_PEX_ANY || SD3_PEX_ANY
 .pbi
 
+#if SD1_PEX_ANY
 #define SRDS_BASE 0x1ea0000 /* SerDes 1 */
 #include <../serdes_28g.rcw>
+#if SD1_PEXA
 write PEXaCR0(0), 0x20081004
+#endif
+#if SD1_PEXB
 write PEXaCR0(1), 0x20081004
+#endif
+#if SD1_PEXC
 write PEXaCR0(2), 0x20081004
+#endif
+#if SD1_PEXD
 write PEXaCR0(3), 0x20081004
+#endif
+#if SD1_PEXA
 write PEXaCR1(0), 0x00081004
+#endif
+#if SD1_PEXB
 write PEXaCR1(1), 0x00081004
+#endif
+#if SD1_PEXC
 write PEXaCR1(2), 0x00081004
+#endif
+#if SD1_PEXD
 write PEXaCR1(3), 0x00081004
+#endif
 #undef SRDS_BASE
+#endif /* SD1_PEX_ANY */
 
+#if SD2_PEX_ANY
 #define SRDS_BASE 0x1eb0000 /* SerDes 2 */
 #include <../serdes_28g.rcw>
+#if SD2_PEXA
 write PEXaCR0(0), 0x20081004
+#endif
+#if SD2_PEXB
 write PEXaCR0(1), 0x20081004
+#endif
+#if SD2_PEXC
 write PEXaCR0(2), 0x20081004
+#endif
+#if SD2_PEXD
 write PEXaCR0(3), 0x20081004
+#endif
+#if SD2_PEXA
 write PEXaCR1(0), 0x00081004
+#endif
+#if SD2_PEXB
 write PEXaCR1(1), 0x00081004
+#endif
+#if SD2_PEXC
 write PEXaCR1(2), 0x00081004
+#endif
+#if SD2_PEXD
 write PEXaCR1(3), 0x00081004
+#endif
 #undef SRDS_BASE
+#endif /* SD2_PEX_ANY */
 
+#if SD3_PEX_ANY
 #define SRDS_BASE 0x1ec0000 /* SerDes 3 */
 #include <../serdes_28g.rcw>
+#if SD3_PEXA
 write PEXaCR0(0), 0x20081004
+#endif
+#if SD3_PEXB
 write PEXaCR0(1), 0x20081004
+#endif
+#if SD3_PEXC
 write PEXaCR0(2), 0x20081004
+#endif
+#if SD3_PEXD
 write PEXaCR0(3), 0x20081004
+#endif
+#if SD3_PEXA
 write PEXaCR1(0), 0x00081004
+#endif
+#if SD3_PEXB
 write PEXaCR1(1), 0x00081004
+#endif
+#if SD3_PEXC
 write PEXaCR1(2), 0x00081004
+#endif
+#if SD3_PEXD
 write PEXaCR1(3), 0x00081004
+#endif
 #undef SRDS_BASE
+#endif /* SD3_PEX_ANY */
 
 .end
+#endif /* any PCI Express lane at all */
