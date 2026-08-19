@@ -1,13 +1,41 @@
 /*
  * PCIe: Software will read incorrect Function Dependency List for PF1
  * Workaround: Program the FDL field in the SRIOV_FDL_DEVICE_ID1 register to 0x1
+ *
+ * A board that declares its SerDes protocols (see serdes_prtcl.rcw) gets
+ * two filters applied to the six writes below:
+ *
+ *   - the controller must be enabled by the SerDes protocol at all;
+ *   - the controller must implement SR-IOV. PCIe1, PCIe2, PCIe4 and
+ *     PCIe6 do not (RM 22.4.1 / 22.4.2), so they have no PF1 and no
+ *     SRIOV_FDL_DEVICE_ID1 to fix.
+ *
+ * A board that declares nothing keeps all six writes, as before.
+ *
+ * Controller base addresses run at a 0x100000 stride from PCIe1 at
+ * 0x03400000, offset 0x688 is the Synopsys DesignWare SRIOV_FDL_DEVICE_ID1
+ * register.
  */
 
+#include <../lx2160asi/serdes_prtcl.rcw>
+
 .pbi
+#if PEX1_ACTIVE && (!SRDS_S1_KNOWN || PEX1_SRIOV)
 write 0x03400688,0x00000001
+#endif
+#if PEX2_ACTIVE && (!SRDS_S1_KNOWN || PEX2_SRIOV)
 write 0x03500688,0x00000001
+#endif
+#if PEX3_ACTIVE && (!SRDS_S2_KNOWN || PEX3_SRIOV)
 write 0x03600688,0x00000001
+#endif
+#if PEX4_ACTIVE && (!SRDS_S2_KNOWN || PEX4_SRIOV)
 write 0x03700688,0x00000001
+#endif
+#if PEX5_ACTIVE && (!SRDS_S3_KNOWN || PEX5_SRIOV)
 write 0x03800688,0x00000001
+#endif
+#if PEX6_ACTIVE && (!SRDS_S3_KNOWN || PEX6_SRIOV)
 write 0x03900688,0x00000001
+#endif
 .end
