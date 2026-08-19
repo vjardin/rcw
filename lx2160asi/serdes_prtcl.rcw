@@ -1,0 +1,266 @@
+/*
+ * SerDes protocol map for LX2160A / LX2162A.
+ *
+ * Source: QorIQ LX2160A Reference Manual, Rev. 1, 10/2021
+ *   Table 289  SerDes 1 protocol mapping
+ *   Table 290  SerDes 2 protocol mapping
+ *   Table 291  SerDes 3 protocol mapping
+ *
+ * Several of the errata work-arounds in this directory program blocks
+ * that a given SerDes protocol does not even enable: PCI Express
+ * controllers whose lanes are assigned to Ethernet, or Ethernet RAMs
+ * that no lane feeds. Those writes are harmless but they are not free.
+ * Every one of them costs bytes in the PBI, and the boot Service
+ * Processor's PBI scratch is finite (4096 bytes). This file lets an
+ * erratum skip them.
+ *
+ * HOW A BOARD OPTS IN
+ *
+ * The RCW field assignment sucha as "SRDS_PRTCL_S1=13" is parsed by rcw.py
+ * long after the preprocessor has finished, so #if cannot see it. A board
+ * that wants the trimming therefore states the protocol as a macro and
+ * assigns the field from that macro, which keeps a single source of
+ * truth:
+ *
+ *     #define SRDS_PRTCL_S1_VAL 13
+ *     #define SRDS_PRTCL_S2_VAL 7
+ *     #define SRDS_PRTCL_S3_VAL 3
+ *
+ *     SRDS_PRTCL_S1=SRDS_PRTCL_S1_VAL
+ *     SRDS_PRTCL_S2=SRDS_PRTCL_S2_VAL
+ *     SRDS_PRTCL_S3=SRDS_PRTCL_S3_VAL
+ *
+ * A board that defines none of them is unaffected: every block is
+ * marked present and each erratum emits exactly the PBI it emitted
+ * before this file existed. The opt-in is per SerDes, so declaring
+ * only SRDS_PRTCL_S2_VAL trims only the SerDes 2 writes.
+ *
+ * A protocol value that appears in no table row - including 0, which
+ * powers the SerDes down - marks every block on that SerDes absent.
+ * A value outside the documented range is a #error rather than a
+ * silent over-trim.
+ *
+ * PCI EXPRESS CONTROLLER NUMBERING
+ *
+ * The RM tables label the PCIe lanes of each SerDes PEXa..PEXd, which
+ * are the per-SerDes sub-controller indices 0..3 used by PEXaCR0(n) /
+ * PEXaCR1(n) in serdes_28g.rcw. Across all three tables only PEXa and
+ * PEXc ever appear: no protocol on any SerDes assigns lanes to PEXb
+ * or PEXd. The two that do exist map onto the chip-level controller
+ * numbers as:
+ *
+ *     SerDes 1: PEXa = PCIe1   PEXc = PCIe2
+ *     SerDes 2: PEXa = PCIe3   PEXc = PCIe4
+ *     SerDes 3: PEXa = PCIe5   PEXc = PCIe6
+ */
+
+#ifndef LX2160A_SERDES_PRTCL_RCW
+#define LX2160A_SERDES_PRTCL_RCW
+
+/* SerDes 1 */
+
+#ifdef SRDS_PRTCL_S1_VAL
+#define SRDS_S1_KNOWN 1
+
+#if !(SRDS_PRTCL_S1_VAL == 0     || SRDS_PRTCL_S1_VAL == 1     || SRDS_PRTCL_S1_VAL == 2 || \
+      SRDS_PRTCL_S1_VAL == 3     || SRDS_PRTCL_S1_VAL == 4     || SRDS_PRTCL_S1_VAL == 5 || \
+      SRDS_PRTCL_S1_VAL == 6     || SRDS_PRTCL_S1_VAL == 7     || SRDS_PRTCL_S1_VAL == 8 || \
+      SRDS_PRTCL_S1_VAL == 9     || SRDS_PRTCL_S1_VAL == 10    || SRDS_PRTCL_S1_VAL == 11 || \
+      SRDS_PRTCL_S1_VAL == 12    || SRDS_PRTCL_S1_VAL == 13    || SRDS_PRTCL_S1_VAL == 14 || \
+      SRDS_PRTCL_S1_VAL == 15    || SRDS_PRTCL_S1_VAL == 16    || SRDS_PRTCL_S1_VAL == 17 || \
+      SRDS_PRTCL_S1_VAL == 18    || SRDS_PRTCL_S1_VAL == 19    || SRDS_PRTCL_S1_VAL == 20 || \
+      SRDS_PRTCL_S1_VAL == 21    || SRDS_PRTCL_S1_VAL == 22)
+#error "SRDS_PRTCL_S1_VAL: not a protocol documented for SerDes 1 (RM Table 289)"
+#endif
+
+/* PCIe sub-controller A (index 0) */
+#if SRDS_PRTCL_S1_VAL == 1     || SRDS_PRTCL_S1_VAL == 5     || SRDS_PRTCL_S1_VAL == 9 || \
+    SRDS_PRTCL_S1_VAL == 10    || SRDS_PRTCL_S1_VAL == 11    || SRDS_PRTCL_S1_VAL == 12
+#define SD1_PEXA 1
+#else
+#define SD1_PEXA 0
+#endif
+
+/* PCIe sub-controller B (index 1) */
+#define SD1_PEXB 0        /* no protocol assigns lanes to it */
+
+/* PCIe sub-controller C (index 2) */
+#if SRDS_PRTCL_S1_VAL == 1     || SRDS_PRTCL_S1_VAL == 2     || SRDS_PRTCL_S1_VAL == 3 || \
+    SRDS_PRTCL_S1_VAL == 9     || SRDS_PRTCL_S1_VAL == 10    || SRDS_PRTCL_S1_VAL == 11 || \
+    SRDS_PRTCL_S1_VAL == 12    || SRDS_PRTCL_S1_VAL == 14    || SRDS_PRTCL_S1_VAL == 15 || \
+    SRDS_PRTCL_S1_VAL == 16    || SRDS_PRTCL_S1_VAL == 17    || SRDS_PRTCL_S1_VAL == 21 || \
+    SRDS_PRTCL_S1_VAL == 22
+#define SD1_PEXC 1
+#else
+#define SD1_PEXC 0
+#endif
+
+/* PCIe sub-controller D (index 3) */
+#define SD1_PEXD 0        /* no protocol assigns lanes to it */
+
+/* any USXGMII / XFI lane */
+#if SRDS_PRTCL_S1_VAL == 3     || SRDS_PRTCL_S1_VAL == 5     || SRDS_PRTCL_S1_VAL == 6 || \
+    SRDS_PRTCL_S1_VAL == 7     || SRDS_PRTCL_S1_VAL == 8     || SRDS_PRTCL_S1_VAL == 10 || \
+    SRDS_PRTCL_S1_VAL == 18    || SRDS_PRTCL_S1_VAL == 19    || SRDS_PRTCL_S1_VAL == 22
+#define SD1_USXFI 1
+#else
+#define SD1_USXFI 0
+#endif
+
+/* any CAUI / 50G / 40G / 25G lane */
+#if SRDS_PRTCL_S1_VAL == 13    || SRDS_PRTCL_S1_VAL == 14    || SRDS_PRTCL_S1_VAL == 15 || \
+    SRDS_PRTCL_S1_VAL == 16    || SRDS_PRTCL_S1_VAL == 17    || SRDS_PRTCL_S1_VAL == 18 || \
+    SRDS_PRTCL_S1_VAL == 19    || SRDS_PRTCL_S1_VAL == 20    || SRDS_PRTCL_S1_VAL == 21
+#define SD1_E100G 1
+#else
+#define SD1_E100G 0
+#endif
+
+#else /* protocol not declared: assume everything is present */
+
+#define SRDS_S1_KNOWN 0
+#define SD1_PEXA 1
+#define SD1_PEXB 1
+#define SD1_PEXC 1
+#define SD1_PEXD 1
+#define SD1_USXFI 1
+#define SD1_E100G 1
+
+#endif /* SRDS_PRTCL_S1_VAL */
+
+/* SerDes 2 */
+
+#ifdef SRDS_PRTCL_S2_VAL
+#define SRDS_S2_KNOWN 1
+
+#if !(SRDS_PRTCL_S2_VAL == 0     || SRDS_PRTCL_S2_VAL == 1     || SRDS_PRTCL_S2_VAL == 2 || \
+      SRDS_PRTCL_S2_VAL == 3     || SRDS_PRTCL_S2_VAL == 4     || SRDS_PRTCL_S2_VAL == 5 || \
+      SRDS_PRTCL_S2_VAL == 6     || SRDS_PRTCL_S2_VAL == 7     || SRDS_PRTCL_S2_VAL == 8 || \
+      SRDS_PRTCL_S2_VAL == 9     || SRDS_PRTCL_S2_VAL == 10    || SRDS_PRTCL_S2_VAL == 11 || \
+      SRDS_PRTCL_S2_VAL == 12    || SRDS_PRTCL_S2_VAL == 13    || SRDS_PRTCL_S2_VAL == 14)
+#error "SRDS_PRTCL_S2_VAL: not a protocol documented for SerDes 2 (RM Table 290)"
+#endif
+
+/* PCIe sub-controller A (index 0) */
+#if SRDS_PRTCL_S2_VAL == 1     || SRDS_PRTCL_S2_VAL == 2     || SRDS_PRTCL_S2_VAL == 3 || \
+    SRDS_PRTCL_S2_VAL == 4     || SRDS_PRTCL_S2_VAL == 5     || SRDS_PRTCL_S2_VAL == 6 || \
+    SRDS_PRTCL_S2_VAL == 7     || SRDS_PRTCL_S2_VAL == 11    || SRDS_PRTCL_S2_VAL == 13 || \
+    SRDS_PRTCL_S2_VAL == 14
+#define SD2_PEXA 1
+#else
+#define SD2_PEXA 0
+#endif
+
+/* PCIe sub-controller B (index 1) */
+#define SD2_PEXB 0        /* no protocol assigns lanes to it */
+
+/* PCIe sub-controller C (index 2) */
+#if SRDS_PRTCL_S2_VAL == 1     || SRDS_PRTCL_S2_VAL == 3     || SRDS_PRTCL_S2_VAL == 4 || \
+    SRDS_PRTCL_S2_VAL == 7     || SRDS_PRTCL_S2_VAL == 10    || SRDS_PRTCL_S2_VAL == 11 || \
+    SRDS_PRTCL_S2_VAL == 12    || SRDS_PRTCL_S2_VAL == 13    || SRDS_PRTCL_S2_VAL == 14
+#define SD2_PEXC 1
+#else
+#define SD2_PEXC 0
+#endif
+
+/* PCIe sub-controller D (index 3) */
+#define SD2_PEXD 0        /* no protocol assigns lanes to it */
+
+/* any USXGMII / XFI lane */
+#if SRDS_PRTCL_S2_VAL == 6     || SRDS_PRTCL_S2_VAL == 7     || SRDS_PRTCL_S2_VAL == 8
+#define SD2_USXFI 1
+#else
+#define SD2_USXFI 0
+#endif
+
+/* any CAUI / 50G / 40G / 25G lane */
+#define SD2_E100G 0        /* no protocol offers it on this SerDes */
+
+#else /* protocol not declared: assume everything is present */
+
+#define SRDS_S2_KNOWN 0
+#define SD2_PEXA 1
+#define SD2_PEXB 1
+#define SD2_PEXC 1
+#define SD2_PEXD 1
+#define SD2_USXFI 1
+#define SD2_E100G 1
+
+#endif /* SRDS_PRTCL_S2_VAL */
+
+/* SerDes 3 */
+
+#ifdef SRDS_PRTCL_S3_VAL
+#define SRDS_S3_KNOWN 1
+
+#if !(SRDS_PRTCL_S3_VAL == 0     || SRDS_PRTCL_S3_VAL == 2     || SRDS_PRTCL_S3_VAL == 3)
+#error "SRDS_PRTCL_S3_VAL: not a protocol documented for SerDes 3 (RM Table 291)"
+#endif
+
+/* PCIe sub-controller A (index 0) */
+#if SRDS_PRTCL_S3_VAL == 2     || SRDS_PRTCL_S3_VAL == 3
+#define SD3_PEXA 1
+#else
+#define SD3_PEXA 0
+#endif
+
+/* PCIe sub-controller B (index 1) */
+#define SD3_PEXB 0        /* no protocol assigns lanes to it */
+
+/* PCIe sub-controller C (index 2) */
+#if SRDS_PRTCL_S3_VAL == 3
+#define SD3_PEXC 1
+#else
+#define SD3_PEXC 0
+#endif
+
+/* PCIe sub-controller D (index 3) */
+#define SD3_PEXD 0        /* no protocol assigns lanes to it */
+
+/* any USXGMII / XFI lane */
+#define SD3_USXFI 0        /* no protocol offers it on this SerDes */
+
+/* any CAUI / 50G / 40G / 25G lane */
+#define SD3_E100G 0        /* no protocol offers it on this SerDes */
+
+#else /* protocol not declared: assume everything is present */
+
+#define SRDS_S3_KNOWN 0
+#define SD3_PEXA 1
+#define SD3_PEXB 1
+#define SD3_PEXC 1
+#define SD3_PEXD 1
+#define SD3_USXFI 1
+#define SD3_E100G 1
+
+#endif /* SRDS_PRTCL_S3_VAL */
+
+/* Chip-level PCI Express controller numbering. */
+
+/* Does this SerDes drive any PCI Express lane at all? */
+#define SD1_PEX_ANY (SD1_PEXA || SD1_PEXB || SD1_PEXC || SD1_PEXD)
+#define SD2_PEX_ANY (SD2_PEXA || SD2_PEXB || SD2_PEXC || SD2_PEXD)
+#define SD3_PEX_ANY (SD3_PEXA || SD3_PEXB || SD3_PEXC || SD3_PEXD)
+
+#define PEX1_ACTIVE SD1_PEXA
+#define PEX2_ACTIVE SD1_PEXC
+#define PEX3_ACTIVE SD2_PEXA
+#define PEX4_ACTIVE SD2_PEXC
+#define PEX5_ACTIVE SD3_PEXA
+#define PEX6_ACTIVE SD3_PEXC
+
+/*
+ * Which controllers implement SR-IOV, from RM 22.4.1 "Non-SR-IOV
+ * instance (PCIe1, PCIe2, PCIe4, and PCIe6) register descriptions" and
+ * RM 22.4.2 "SR-IOV instances (PCIe3 and PCIe5) register descriptions".
+ * A work-around that programs an SR-IOV-only register has nothing to
+ * fix on the other four controllers.
+ */
+#define PEX1_SRIOV 0
+#define PEX2_SRIOV 0
+#define PEX3_SRIOV 1
+#define PEX4_SRIOV 0
+#define PEX5_SRIOV 1
+#define PEX6_SRIOV 0
+
+#endif /* LX2160A_SERDES_PRTCL_RCW */
