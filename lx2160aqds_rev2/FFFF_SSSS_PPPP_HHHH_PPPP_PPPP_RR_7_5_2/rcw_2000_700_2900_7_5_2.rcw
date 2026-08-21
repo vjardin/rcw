@@ -9,7 +9,16 @@
  * DDR      -- 2900 MT/s
  */
 
-#include <../lx2160asi/lx2160a.rcwi>
+/*
+ * The SerDes protocols, declared before the errata are included so
+ * that each of them can drop what this board does not enable.
+ */
+#define SRDS_PRTCL_S1_VAL 7
+#define SRDS_PRTCL_S2_VAL 5
+#define SRDS_PRTCL_S3_VAL 2
+
+/* Bitfield definitions, and every erratum this SoC revision needs */
+#include <../lx2160asi/lx2160a_rev2_auto_errata.rcwi>
 
 SYS_PLL_RAT=14
 MEM_PLL_CFG=3
@@ -29,9 +38,6 @@ IIC3_PMUX=2
 IIC4_PMUX=2
 USB3_CLK_FSEL=39
 SRDS_PLL_PD_PLL5=1
-SRDS_PRTCL_S1=7
-SRDS_PRTCL_S2=5
-SRDS_PRTCL_S3=2
 SRDS_PLL_REF_CLK_SEL_S1=2
 SRDS_DIV_PEX_S1=1
 SRDS_DIV_PEX_S2=1
@@ -43,25 +49,8 @@ SRDS_DIV_PEX_S3=1
 /* Boot Location Pointer */
 #include <../lx2160asi/bootlocptr_nor.rcw>
 
-/* Errata for SATA controller */
-#include <../lx2160asi/a010554.rcw>
-
 /* Modify FlexSPI Clock Divisor value */
 #include <../lx2160asi/flexspi_divisor_28.rcw>
 
 /* common PBI commands */
 #include <../lx2160asi/common.rcw>
-
-/*PCIe Errata A-009531*/
-#include <../lx2160asi/a009531_PEX3.rcw>
-#include <../lx2160asi/a009531_PEX5.rcw>
-
-/*PCIe Errata A-008851*/
-#include <../lx2160asi/a008851_PEX3.rcw>
-#include <../lx2160asi/a008851_PEX5.rcw>
-
-/*SerDes Errata A-050479*/
-#include <../lx2160asi/a050479.rcw>
-
-/* Errata A-050426 */
-#include <../lx2160asi/a050426.rcw>

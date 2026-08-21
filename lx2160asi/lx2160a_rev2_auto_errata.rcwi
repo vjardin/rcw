@@ -1,0 +1,90 @@
+/*
+ * LX2160A / LX2162A rev 2 - errata applied automatically.
+ *
+ * Same logic than lx2160a_auto_errata.rcwi: include it instead of
+ * lx2160a.rcwi, with the SRDS_PRTCL_Sn_VAL macros declared above it.
+ *
+ * See README in this directory.
+ */
+
+#ifndef LX2160A_REV2_AUTO_ERRATA_RCWI
+#define LX2160A_REV2_AUTO_ERRATA_RCWI
+
+/* Bitfield definitions for this SoC */
+#include <../lx2160asi/lx2160a.rcwi>
+
+/*
+ * Assign the SerDes protocol fields from the macros the board declared
+ * above, so that a board states each protocol once and never has to
+ * keep a #define and an RCW assignment in step by hand.
+ *
+ * Guarded, because declaring nothing is a supported way to use this
+ * file: it then emits every erratum at full size, and these lines must
+ * not turn into an assignment of an undefined macro, which rcw.py would
+ * try to parse as a number.
+ */
+#ifdef SRDS_PRTCL_S1_VAL
+SRDS_PRTCL_S1=SRDS_PRTCL_S1_VAL
+#endif
+#ifdef SRDS_PRTCL_S2_VAL
+SRDS_PRTCL_S2=SRDS_PRTCL_S2_VAL
+#endif
+#ifdef SRDS_PRTCL_S3_VAL
+SRDS_PRTCL_S3=SRDS_PRTCL_S3_VAL
+#endif
+
+#include <../lx2160asi/serdes_prtcl.rcw>
+
+/* SATA controller may fail to detect some hard drives */
+#include <../lx2160asi/a010554.rcw>
+
+/* PCI Express completer sets IDO when it must not - A-009531 */
+#if PEX1_ACTIVE
+#include <../lx2160asi/a009531_PEX1.rcw>
+#endif
+#if PEX2_ACTIVE
+#include <../lx2160asi/a009531_PEX2.rcw>
+#endif
+#if PEX3_ACTIVE
+#include <../lx2160asi/a009531_PEX3.rcw>
+#endif
+#if PEX4_ACTIVE
+#include <../lx2160asi/a009531_PEX4.rcw>
+#endif
+#if PEX5_ACTIVE
+#include <../lx2160asi/a009531_PEX5.rcw>
+#endif
+#if PEX6_ACTIVE
+#include <../lx2160asi/a009531_PEX6.rcw>
+#endif
+
+/* Invalid Gen3 equalization presets in root complex mode - A-008851 */
+#if PEX1_ACTIVE
+#include <../lx2160asi/a008851_PEX1.rcw>
+#endif
+#if PEX2_ACTIVE
+#include <../lx2160asi/a008851_PEX2.rcw>
+#endif
+#if PEX3_ACTIVE
+#include <../lx2160asi/a008851_PEX3.rcw>
+#endif
+#if PEX4_ACTIVE
+#include <../lx2160asi/a008851_PEX4.rcw>
+#endif
+#if PEX5_ACTIVE
+#include <../lx2160asi/a008851_PEX5.rcw>
+#endif
+#if PEX6_ACTIVE
+#include <../lx2160asi/a008851_PEX6.rcw>
+#endif
+
+/* PCI Express link training may not survive the speed change */
+#include <../lx2160asi/a050479.rcw>
+
+/*
+ * First write or read of an internal RAM after PORESET may be corrupt.
+ * Kept last: it opens a DCSR access window with loadacwindow.
+ */
+#include <../lx2160asi/a050426.rcw>
+
+#endif /* LX2160A_REV2_AUTO_ERRATA_RCWI */

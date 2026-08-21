@@ -31,26 +31,45 @@
  * Since the PCI Express controllers automatically utilize the settings from
  * these SerDes registers during speed change, software can blindly write to
  * these registers in all SerDes modules without negative impact.
+ *
+ * The blind write is safe but it is not free: a PEXaCR8 that belongs to a
+ * PCI Express sub-controller the SerDes protocol never enables has no link
+ * to train. Where the board declares its protocols those writes are
+ * dropped; where it does not, all six are emitted as before.
  */
+
+#include <../lx2160asi/serdes_prtcl.rcw>
 
 .pbi
 
 #define SRDS_BASE 0x1ea0000 /* SerDes 1 */
 #include <../serdes_28g.rcw>
+#if SD1_PEXA
 write PEXaCR8(0), 0x0800FA00
+#endif
+#if SD1_PEXC
 write PEXaCR8(2), 0x0800FA00
+#endif
 #undef SRDS_BASE
 
 #define SRDS_BASE 0x1eb0000 /* SerDes 2 */
 #include <../serdes_28g.rcw>
+#if SD2_PEXA
 write PEXaCR8(0), 0x0800FA00
+#endif
+#if SD2_PEXC
 write PEXaCR8(2), 0x0800FA00
+#endif
 #undef SRDS_BASE
 
 #define SRDS_BASE 0x1ec0000 /* SerDes 3 */
 #include <../serdes_28g.rcw>
+#if SD3_PEXA
 write PEXaCR8(0), 0x0800FA00
+#endif
+#if SD3_PEXC
 write PEXaCR8(2), 0x0800FA00
+#endif
 #undef SRDS_BASE
 
 .end

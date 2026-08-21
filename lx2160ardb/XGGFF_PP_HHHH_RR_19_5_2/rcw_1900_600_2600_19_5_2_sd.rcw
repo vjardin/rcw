@@ -9,7 +9,16 @@
  * DDR      -- 2600 MT/s
  */
 
-#include <../lx2160asi/lx2160a.rcwi>
+/*
+ * The SerDes protocols, declared before the errata are included so
+ * that each of them can drop what this board does not enable.
+ */
+#define SRDS_PRTCL_S1_VAL 19
+#define SRDS_PRTCL_S2_VAL 5
+#define SRDS_PRTCL_S3_VAL 2
+
+/* Bitfield definitions, and every erratum this SoC revision needs */
+#include <../lx2160asi/lx2160a_auto_errata.rcwi>
 
 SYS_PLL_RAT=12
 MEM_PLL_CFG=3
@@ -32,9 +41,6 @@ IIC2_PMUX=6
 IIC3_PMUX=2
 IIC4_PMUX=2
 USB3_CLK_FSEL=39
-SRDS_PRTCL_S1=19
-SRDS_PRTCL_S2=5
-SRDS_PRTCL_S3=2
 SRDS_PLL_REF_CLK_SEL_S1=2
 SRDS_DIV_PEX_S1=1
 SRDS_DIV_PEX_S2=3
@@ -51,15 +57,8 @@ blockcopy 0x08,0x00100000,0x1800a000,0x00020000
 /* Boot Location Pointer */
 #include <../lx2160asi/bootlocptr_sd.rcw>
 
-/* Errata for SATA controller */
-#include <../lx2160asi/a010554.rcw>
-
 /* Modify FlexSPI Clock Divisor value */
 #include <../lx2160asi/flexspi_divisor_24.rcw>
-
-/* Errata for PCIe controller */
-#include <../lx2160asi/a011270.rcw>
-#include <../lx2160asi/a050234.rcw>
 
 /* common PBI commands */
 #include <../lx2160asi/common.rcw>
