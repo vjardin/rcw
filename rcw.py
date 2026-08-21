@@ -487,10 +487,16 @@ def build_pbi(lines):
             if p1 == None or p2 == None:
                 print('Error: "jumpc" instruction requires two parameters')
                 return ''
+            if p1 <= 8:
+                print('Error: "jumpc" offset must be > 8 (forward-only, got %d)' % p1)
+                return ''
             subsection += build_pbi_jumpc(endianess, p1, p2)
         elif op == 'jump':
             if p1 == None:
                 print('Error: "jump" instruction requires a parameter')
+                return ''
+            if p1 <= 8:
+                print('Error: "jump" offset must be > 8 (forward-only, got %d)' % p1)
                 return ''
             subsection += build_pbi_jump(endianess, p1)
         elif op == 'awrite':
