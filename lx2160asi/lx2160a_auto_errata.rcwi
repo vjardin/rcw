@@ -1,0 +1,69 @@
+/*
+ * LX2160A / LX2162A rev 1 - errata applied automatically.
+ *
+ * A board includes this file instead of lx2160a.rcwi and gets the
+ * bitfield definitions plus every work-around this SoC revision needs,
+ * without listing them one by one.
+ *
+ * To be used thanks to C macro:
+ *
+ *     #define SRDS_PRTCL_S1_VAL 18
+ *     #define SRDS_PRTCL_S2_VAL 5
+ *     #define SRDS_PRTCL_S3_VAL 2
+ *
+ *     #include <../lx2160asi/lx2160a_auto_errata.rcwi>
+ *
+ * That is all a board declares: the assignment of SRDS_PRTCL_S1, S2 and
+ * S3 is done below, from those macros. The #define lines must come
+ * first, because this is where each erratum is trimmed, and this
+ * include belongs at the top of the board file where lx2160a.rcwi used
+ * to be.
+ *
+ * A board that declares none of them gets the full, untrimmed PBI of
+ * every erratum.
+ *
+ * Boards that need a different set - an erratum deliberately left out,
+ * or one that is not yet in this list - keep including the individual
+ * files instead. Both ways stay supported.
+ *
+ * See README in this directory.
+ */
+
+#ifndef LX2160A_AUTO_ERRATA_RCWI
+#define LX2160A_AUTO_ERRATA_RCWI
+
+/* Bitfield definitions for this SoC */
+#include <../lx2160asi/lx2160a.rcwi>
+
+/*
+ * Assign the SerDes protocol fields from the macros the board declared
+ * above, so that a board states each protocol once and never has to
+ * keep a #define and an RCW assignment in step by hand.
+ *
+ * Guarded, because declaring nothing is a supported way to use this
+ * file: it then emits every erratum at full size, and these lines must
+ * not turn into an assignment of an undefined macro, which rcw.py would
+ * try to parse as a number.
+ */
+#ifdef SRDS_PRTCL_S1_VAL
+SRDS_PRTCL_S1=SRDS_PRTCL_S1_VAL
+#endif
+#ifdef SRDS_PRTCL_S2_VAL
+SRDS_PRTCL_S2=SRDS_PRTCL_S2_VAL
+#endif
+#ifdef SRDS_PRTCL_S3_VAL
+SRDS_PRTCL_S3=SRDS_PRTCL_S3_VAL
+#endif
+
+#include <../lx2160asi/serdes_prtcl.rcw>
+
+/* SATA controller may fail to detect some hard drives */
+#include <../lx2160asi/a010554.rcw>
+
+/* Software reads an incorrect Function Dependency List for PF1 */
+#include <../lx2160asi/a011270.rcw>
+
+/* PCI Express elastic buffer thresholds default to a lossy setting */
+#include <../lx2160asi/a050234.rcw>
+
+#endif /* LX2160A_AUTO_ERRATA_RCWI */
