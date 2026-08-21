@@ -1,14 +1,23 @@
 /*
  * SATA controller may fail to detect some hard drives
  * Workaround: Before enabling SATA controller perform below write operations
+ *
+ * Only SerDes 2 carries SATA lanes (RM Table 290); a protocol that maps
+ * none of them leaves nothing for this work-around to fix.
  */
+
+#include <../lx2160asi/serdes_prtcl.rcw>
 
 .pbi
 
 #define SRDS_BASE 0x1eb0000 /* SerDes 2 */
 #include <../serdes_28g.rcw>
+#if SD2_SATAA
 write SATAaCR0(0), 0x80104e20
+#endif
+#if SD2_SATAB
 write SATAaCR0(1), 0x80104e20
+#endif
 #undef SRDS_BASE
 
 .end
