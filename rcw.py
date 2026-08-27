@@ -909,10 +909,6 @@ def create_binary():
 
     return binary
 
-def _get_var_int(name, default=0):
-    """Return vars[name] as int, or default if absent."""
-    return int(vars[name], 0) if name in vars else default
-
 def _resolve_endianess():
     """Return (endianess, endianessrev) struct format characters."""
     if _get_var_int('littleendian'):
