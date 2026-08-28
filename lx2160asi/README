@@ -1,0 +1,81 @@
+Errata applied automatically
+============================
+
+A LX2160A / LX2162A board can include one file and it gets every work-around
+its silicon revision needs:
+
+    lx2160a_auto_errata.rcwi        rev 1
+    lx2160a_rev2_auto_errata.rcwi   rev 2
+
+It replaces the #include of lx2160a.rcwi so the board is not listing errata
+one #include at a time any more.
+
+Why
+---
+
+A board that names its errata by hand is only as complete as the day it
+was written. Boards live downstream for years: a work-around added
+upstream afterwards never reaches them and nothing says so.
+
+Using it
+--------
+
+Declare the SerDes protocols as macros, then include the catalog. This
+is lx2160ardb_rev2/IGGFF_PP_HHHH_RR_18_5_2 in full:
+
+    /*
+     * SerDes Protocol 1 -  18
+     * SerDes Protocol 2 -  5
+     * SerDes Protocol 3 -  2
+     */
+
+    #define SRDS_PRTCL_S1_VAL 18
+    #define SRDS_PRTCL_S2_VAL 5
+    #define SRDS_PRTCL_S3_VAL 2
+
+    #include <../lx2160asi/lx2160a_rev2_auto_errata.rcwi>
+
+    SYS_PLL_RAT=14
+    ...
+    SRDS_PLL_REF_CLK_SEL_S1=2
+    ...
+
+    /* the board's own PBI, unchanged */
+    #include <../lx2160asi/scratchrw1.rcw>
+    #include <../lx2160asi/bootlocptr_nor.rcw>
+    #include <../lx2160asi/common.rcw>
+    #include <../lx2160asi/flexspi_divisor_28.rcw>
+
+The catalog assigns SRDS_PRTCL_S1, S2 and S3 from those macros, so a
+board states each protocol once. It does not need to write the
+assignments itself.
+
+The include belongs at the top of the board file, where
+lx2160a.rcwi used to be, and the errata are now the first PBI the
+Service Processor executes rather than the last.
+
+What a board gets
+-----------------
+
+Only the writes its protocols justify. On the example above, protocol 18
+puts no PCIe lane on SerDes 1, so PEX1 and PEX2 fall out of a011270,
+a050234, a050426 and a050479, and the board goes from 460 to 268 bytes
+of PBI.
+
+A board that declares no protocol is still correct: every erratum is
+emitted at full size, exactly as before. The declaration is opt-in and
+no existing board changes behaviour by accident.
+
+serdes_prtcl.rcw holds the mapping.
+
+Checking it
+-----------
+
+    ./check_errata_trim.sh [reference-rev]
+
+builds the tree three times:
+ - the reference revision,
+ - the current tree with RCW_ERRATA_NO_TRIM defined,
+ - the current tree normally
+and asserts that the reference sits between the last two:
+    trimmed  <=  reference  <=  no-trim
