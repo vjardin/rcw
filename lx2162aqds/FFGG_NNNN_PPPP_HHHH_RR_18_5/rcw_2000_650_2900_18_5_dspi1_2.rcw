@@ -9,7 +9,10 @@
  *
  */
 
-#include <../lx2160asi/lx2160a.rcwi>
+#define SRDS_PRTCL_S1_VAL 18
+#define SRDS_PRTCL_S2_VAL 5
+
+#include <../lx2160asi/lx2162a_auto_errata.rcwi>
 
 SYS_PLL_RAT=13
 MEM_PLL_CFG=3
@@ -32,8 +35,6 @@ SDHC2_BASE_PMUX=2
 USB3_CLK_FSEL=39
 SRDS_PLL_PD_PLL5=1
 SRDS_PLL_PD_PLL6=1
-SRDS_PRTCL_S1=18
-SRDS_PRTCL_S2=5
 SRDS_REFCLKF_DIS_S3=1
 SRDS_PLL_REF_CLK_SEL_S1=2
 SRDS_INTRA_REF_CLK_S1=1
@@ -48,15 +49,6 @@ SRDS_DIV_PEX_S2=1
 
 /* common PBI commands */
 #include <../lx2160asi/common.rcw>
-
-/*PCIe Errata A-009531*/
-#include <../lx2160asi/a009531_PEX3.rcw>
-
-/*PCIe Errata A-008851*/
-#include <../lx2160asi/a008851_PEX3.rcw>
-
-/*SerDes Errata A-050479*/
-#include <../lx2160asi/a050479.rcw>
 
 /* 25G lane equalization settings */
 #include <25g_eq_s1_lane_f.rcw>
@@ -73,6 +65,3 @@ SRDS_DIV_PEX_S2=1
 
 /* DDR2 clock disable*/
 #include <disable_ddr2.rcw>
-
-/* Errata A-050426 */
-#include <../lx2160asi/a050426.rcw>
