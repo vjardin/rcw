@@ -283,6 +283,40 @@
 
 #endif /* SRDS_PRTCL_S3_VAL */
 
+/*
+ * LX2162A
+ *
+ * The LX2162A is the LX2160A die with fewer SerDes lanes bonded out:
+ * SerDes 1 offers lanes 4-7 only and there is no SerDes 3.
+ */
+#if defined(SOC_LX2162A) && !defined(RCW_ERRATA_NO_TRIM)
+#undef SD1_PEXC
+#define SD1_PEXC 0
+
+#undef SRDS_S3_KNOWN
+#define SRDS_S3_KNOWN 1
+#undef SD3_PEXA
+#define SD3_PEXA 0
+#undef SD3_PEXB
+#define SD3_PEXB 0
+#undef SD3_PEXC
+#define SD3_PEXC 0
+#undef SD3_PEXD
+#define SD3_PEXD 0
+#undef SD3_USXFI
+#define SD3_USXFI 0
+#undef SD3_E100G
+#define SD3_E100G 0
+#undef SD3_SATAA
+#define SD3_SATAA 0
+#undef SD3_SATAB
+#define SD3_SATAB 0
+#undef SD3_SATAC
+#define SD3_SATAC 0
+#undef SD3_SATAD
+#define SD3_SATAD 0
+#endif /* SOC_LX2162A */
+
 /* Chip-level PCI Express controller numbering. */
 
 /* Does this SerDes drive any PCI Express lane at all? */

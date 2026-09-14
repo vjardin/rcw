@@ -1,0 +1,23 @@
+/*
+ * LX2162A - errata applied automatically.
+ *
+ * Same use as lx2160a_rev2_auto_errata.rcwi: include it instead of
+ * lx2160a.rcwi, with SRDS_PRTCL_S1_VAL and SRDS_PRTCL_S2_VAL declared
+ * above it. There is no SerDes 3 on this part, so SRDS_PRTCL_S3_VAL is
+ * not declared.
+ *
+ * The LX2162A is rev 2 LX2160A silicon with fewer SerDes lanes bonded
+ * out. SOC_LX2162A tells serdes_prtcl.rcw which PCI Express controllers
+ * can therefore never have lanes, whatever the protocol tables say.
+ *
+ * See README in this directory.
+ */
+
+#ifndef LX2162A_AUTO_ERRATA_RCWI
+#define LX2162A_AUTO_ERRATA_RCWI
+
+#define SOC_LX2162A 1
+
+#include <../lx2160asi/lx2160a_rev2_auto_errata.rcwi>
+
+#endif /* LX2162A_AUTO_ERRATA_RCWI */
